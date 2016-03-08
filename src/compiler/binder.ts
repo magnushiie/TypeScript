@@ -450,7 +450,11 @@ namespace ts {
             // reset all emit helper flags on node (for incremental scenarios)
             flags &= ~NodeFlags.EmitHelperFlags;
 
-            if (kind === SyntaxKind.InterfaceDeclaration) {
+            const trackThisOccurences = kind === SyntaxKind.InterfaceDeclaration || isClassLikeKind(kind);
+            let savedSeenThisKeyword: boolean;
+
+            if (trackThisOccurences) {
+                savedSeenThisKeyword = seenThisKeyword;
                 seenThisKeyword = false;
             }
 
@@ -480,8 +484,9 @@ namespace ts {
                 }
             }
 
-            if (kind === SyntaxKind.InterfaceDeclaration) {
-                flags = seenThisKeyword ? flags | NodeFlags.ContainsThis : flags & ~NodeFlags.ContainsThis;
+            if (trackThisOccurences) {
+                flags = seenThisKeyword ? flags | NodeFlags.UsesThisTypeOrReference : flags & ~NodeFlags.UsesThisTypeOrReference;
+                seenThisKeyword = savedSeenThisKeyword;
             }
 
             if (kind === SyntaxKind.SourceFile) {
@@ -1269,6 +1274,11 @@ namespace ts {
                     return checkStrictModePrefixUnaryExpression(<PrefixUnaryExpression>node);
                 case SyntaxKind.WithStatement:
                     return checkStrictModeWithStatement(<WithStatement>node);
+                case SyntaxKind.ThisKeyword:
+                    if (node.parent.kind !== SyntaxKind.PropertyAccessExpression && node.parent.kind !== SyntaxKind.ElementAccessExpression) {
+                        seenThisKeyword = true;
+                    }
+                    break;
                 case SyntaxKind.ThisType:
                     seenThisKeyword = true;
                     return;

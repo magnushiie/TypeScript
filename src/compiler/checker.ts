@@ -3317,7 +3317,7 @@ namespace ts {
         function isIndependentInterface(symbol: Symbol): boolean {
             for (const declaration of symbol.declarations) {
                 if (declaration.kind === SyntaxKind.InterfaceDeclaration) {
-                    if (declaration.flags & NodeFlags.ContainsThis) {
+                    if (declaration.flags & NodeFlags.UsesThisTypeOrReference) {
                         return false;
                     }
                     const baseTypeNodes = getInterfaceBaseTypeNodes(<InterfaceDeclaration>declaration);
