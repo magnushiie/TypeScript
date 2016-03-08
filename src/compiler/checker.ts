@@ -825,7 +825,8 @@ namespace ts {
                     // No static member is present.
                     // Check if we're in an instance method and look for a relevant instance member.
                     if (location === container && !(location.flags & NodeFlags.Static)) {
-                        const instanceType = (<InterfaceType>getDeclaredTypeOfSymbol(classSymbol)).thisType;
+                        const declaredType = <InterfaceType>getDeclaredTypeOfSymbol(classSymbol);
+                        const instanceType = declaredType.thisType || declaredType;
                         if (getPropertyOfType(instanceType, name)) {
                             error(errorLocation, Diagnostics.Cannot_find_name_0_Did_you_mean_the_instance_member_this_0, typeof nameArg === "string" ? nameArg : declarationNameToString(nameArg));
                             return true;
@@ -3311,10 +3312,10 @@ namespace ts {
             }
         }
 
-        // Returns true if the interface given by the symbol is free of "this" references. Specifically, the result is
-        // true if the interface itself contains no references to "this" in its body, if all base types are interfaces,
-        // and if none of the base interfaces have a "this" type.
-        function isIndependentInterface(symbol: Symbol): boolean {
+        // Returns true if the class\interface given by the symbol is free of "this" references. Specifically, the result is
+        // true if the class\interface itself contains no references to "this" in its body, if all base types are classes\interfaces,
+        // and if none of the base classes\interfaces have a "this" type.
+        function isIndependentClassOrInterface(symbol: Symbol): boolean {
             for (const declaration of symbol.declarations) {
                 if (declaration.kind === SyntaxKind.InterfaceDeclaration) {
                     if (declaration.flags & NodeFlags.UsesThisTypeOrReference) {
@@ -3325,7 +3326,7 @@ namespace ts {
                         for (const node of baseTypeNodes) {
                             if (isSupportedExpressionWithTypeArguments(node)) {
                                 const baseSymbol = resolveEntityName(node.expression, SymbolFlags.Type, /*ignoreErrors*/ true);
-                                if (!baseSymbol || !(baseSymbol.flags & SymbolFlags.Interface) || getDeclaredTypeOfClassOrInterface(baseSymbol).thisType) {
+                                if (!baseSymbol || getDeclaredTypeOfClassOrInterface(baseSymbol).thisType) {
                                     return false;
                                 }
                             }
@@ -3348,7 +3349,9 @@ namespace ts {
                 // property types inferred from initializers and method return types inferred from return statements are very hard
                 // to exhaustively analyze). We give interfaces a "this" type if we can't definitely determine that they are free of
                 // "this" references.
-                if (outerTypeParameters || localTypeParameters || kind === TypeFlags.Class || !isIndependentInterface(symbol)) {
+                const isGeneric = outerTypeParameters || localTypeParameters;
+                const isIndependent = isIndependentClassOrInterface(symbol);
+                if (isGeneric || !isIndependent) {
                     type.flags |= TypeFlags.Reference;
                     type.typeParameters = concatenate(outerTypeParameters, localTypeParameters);
                     type.outerTypeParameters = outerTypeParameters;
@@ -3357,9 +3360,11 @@ namespace ts {
                     (<GenericType>type).instantiations[getTypeListId(type.typeParameters)] = <GenericType>type;
                     (<GenericType>type).target = <GenericType>type;
                     (<GenericType>type).typeArguments = type.typeParameters;
-                    type.thisType = <TypeParameter>createType(TypeFlags.TypeParameter | TypeFlags.ThisType);
-                    type.thisType.symbol = symbol;
-                    type.thisType.constraint = type;
+                    if (!isIndependent) {
+                        type.thisType = <TypeParameter>createType(TypeFlags.TypeParameter | TypeFlags.ThisType);
+                        type.thisType.symbol = symbol;
+                        type.thisType.constraint = type;
+                    }
                 }
             }
             return <InterfaceType>links.declaredType;
@@ -3559,11 +3564,16 @@ namespace ts {
         }
 
         function getTypeWithThisArgument(type: ObjectType, thisArgument?: Type) {
-            if (type.flags & TypeFlags.Reference) {
+            if (hasAssociatedThisType(type)) {
+                // instantiate type reference only if type uses thisType
                 return createTypeReference((<TypeReference>type).target,
                     concatenate((<TypeReference>type).typeArguments, [thisArgument || (<TypeReference>type).target.thisType]));
             }
             return type;
+        }
+
+        function hasAssociatedThisType(type: ObjectType): boolean {
+            return type.flags & TypeFlags.Reference && !!(<TypeReference>type).target.thisType;
         }
 
         function resolveObjectTypeMembers(type: ObjectType, source: InterfaceTypeWithDeclaredMembers, typeParameters: TypeParameter[], typeArguments: Type[]) {
@@ -3575,7 +3585,7 @@ namespace ts {
             let numberIndexInfo = source.declaredNumberIndexInfo;
             if (!rangeEquals(typeParameters, typeArguments, 0, typeParameters.length)) {
                 mapper = createTypeMapper(typeParameters, typeArguments);
-                members = createInstantiatedSymbolTable(source.declaredProperties, mapper, /*mappingThisOnly*/ typeParameters.length === 1);
+                members = createInstantiatedSymbolTable(source.declaredProperties, mapper, hasAssociatedThisType(type) && typeParameters.length === 1);
                 callSignatures = instantiateList(source.declaredCallSignatures, mapper, instantiateSignature);
                 constructSignatures = instantiateList(source.declaredConstructSignatures, mapper, instantiateSignature);
                 stringIndexInfo = instantiateIndexInfo(source.declaredStringIndexInfo, mapper);
@@ -3586,9 +3596,11 @@ namespace ts {
                 if (members === source.symbol.members) {
                     members = createSymbolTable(source.declaredProperties);
                 }
-                const thisArgument = lastOrUndefined(typeArguments);
+                const thisArgument = hasAssociatedThisType(type) ? lastOrUndefined(typeArguments) : undefined;
                 for (const baseType of baseTypes) {
-                    const instantiatedBaseType = thisArgument ? getTypeWithThisArgument(instantiateType(baseType, mapper), thisArgument) : baseType;
+                    const instantiatedBaseType = thisArgument 
+                        ? getTypeWithThisArgument(instantiateType(baseType, mapper), thisArgument) 
+                        : instantiateType(baseType, mapper);
                     addInheritedMembers(members, getPropertiesOfObjectType(instantiatedBaseType));
                     callSignatures = concatenate(callSignatures, getSignaturesOfType(instantiatedBaseType, SignatureKind.Call));
                     constructSignatures = concatenate(constructSignatures, getSignaturesOfType(instantiatedBaseType, SignatureKind.Construct));
@@ -3605,7 +3617,7 @@ namespace ts {
 
         function resolveTypeReferenceMembers(type: TypeReference): void {
             const source = resolveDeclaredMembers(type.target);
-            const typeParameters = concatenate(source.typeParameters, [source.thisType]);
+            const typeParameters = source.thisType ? concatenate(source.typeParameters, [source.thisType]) : source.typeParameters;
             const typeArguments = type.typeArguments && type.typeArguments.length === typeParameters.length ?
                 type.typeArguments : concatenate(type.typeArguments, [type]);
             resolveObjectTypeMembers(type, source, typeParameters, typeArguments);
@@ -4944,7 +4956,8 @@ namespace ts {
             if (parent && (isClassLike(parent) || parent.kind === SyntaxKind.InterfaceDeclaration)) {
                 if (!(container.flags & NodeFlags.Static) &&
                     (container.kind !== SyntaxKind.Constructor || isNodeDescendentOf(node, (<ConstructorDeclaration>container).body))) {
-                    return getDeclaredTypeOfClassOrInterface(getSymbolOfNode(parent)).thisType;
+                    const declaredType = getDeclaredTypeOfClassOrInterface(getSymbolOfNode(parent));
+                    return declaredType.thisType || declaredType;
                 }
             }
             error(node, Diagnostics.A_this_type_is_available_only_in_a_non_static_member_of_a_class_or_interface);
@@ -7574,7 +7587,11 @@ namespace ts {
 
             if (isClassLike(container.parent)) {
                 const symbol = getSymbolOfNode(container.parent);
-                return container.flags & NodeFlags.Static ? getTypeOfSymbol(symbol) : (<InterfaceType>getDeclaredTypeOfSymbol(symbol)).thisType;
+                if (container.flags & NodeFlags.Static) {
+                    return getTypeOfSymbol(symbol);
+                }
+                const declaredType = (<InterfaceType>getDeclaredTypeOfSymbol(symbol));
+                return declaredType.thisType || declaredType;
             }
 
             if (isInJavaScriptFile(node)) {
