@@ -3312,26 +3312,50 @@ namespace ts {
             }
         }
 
+        function isIndependentHeritageClause(nodes: NodeArray<ExpressionWithTypeArguments>): boolean {
+            if (!nodes) {
+                return true;
+            }
+            for(const node of nodes) {
+                if (!isIndependentHeritageClauseElement(node)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function isIndependentHeritageClauseElement(node: ExpressionWithTypeArguments): boolean {
+            if (!node) {
+                return true;
+            }
+            if (isSupportedExpressionWithTypeArguments(node)) {
+                const baseSymbol = resolveEntityName(node.expression, SymbolFlags.Type, /*ignoreErrors*/ true);
+                if (!baseSymbol || baseSymbol === unknownSymbol) {
+                    // pessimistically asssume that base type is not independent
+                    return false;
+                }
+                const baseType = <InterfaceType>getDeclaredTypeOfSymbol(baseSymbol);
+                if (baseType.thisType) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         // Returns true if the class\interface given by the symbol is free of "this" references. Specifically, the result is
         // true if the class\interface itself contains no references to "this" in its body, if all base types are classes\interfaces,
         // and if none of the base classes\interfaces have a "this" type.
         function isIndependentClassOrInterface(symbol: Symbol): boolean {
             for (const declaration of symbol.declarations) {
-                if (declaration.kind === SyntaxKind.InterfaceDeclaration || isClassLike(declaration)) {
-                    if (declaration.flags & NodeFlags.UsesThisTypeOrReference) {
-                        return false;
-                    }
-                    const baseTypeNodes = getInterfaceBaseTypeNodes(<InterfaceDeclaration>declaration);
-                    if (baseTypeNodes) {
-                        for (const node of baseTypeNodes) {
-                            if (isSupportedExpressionWithTypeArguments(node)) {
-                                const baseSymbol = resolveEntityName(node.expression, SymbolFlags.Type, /*ignoreErrors*/ true);
-                                if (!baseSymbol || getDeclaredTypeOfClassOrInterface(baseSymbol).thisType) {
-                                    return false;
-                                }
-                            }
-                        }
-                    }
+                if (declaration.flags & NodeFlags.UsesThisTypeOrReference) {
+                    return false;
+                }
+                if (declaration.kind === SyntaxKind.InterfaceDeclaration) {
+                    return isIndependentHeritageClause(getInterfaceBaseTypeNodes(<InterfaceDeclaration>declaration));
+                }
+                else if (isClassLike(declaration)) {
+                    return isIndependentHeritageClauseElement(getClassExtendsHeritageClauseElement(declaration)) &&
+                        isIndependentHeritageClause(getClassImplementsHeritageClauseElements(declaration));
                 }
             }
             return true;
