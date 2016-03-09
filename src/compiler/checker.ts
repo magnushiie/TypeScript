@@ -3317,7 +3317,7 @@ namespace ts {
         // and if none of the base classes\interfaces have a "this" type.
         function isIndependentClassOrInterface(symbol: Symbol): boolean {
             for (const declaration of symbol.declarations) {
-                if (declaration.kind === SyntaxKind.InterfaceDeclaration) {
+                if (declaration.kind === SyntaxKind.InterfaceDeclaration || isClassLike(declaration)) {
                     if (declaration.flags & NodeFlags.UsesThisTypeOrReference) {
                         return false;
                     }
