@@ -3351,11 +3351,17 @@ namespace ts {
                     return false;
                 }
                 if (declaration.kind === SyntaxKind.InterfaceDeclaration) {
-                    return isIndependentHeritageClause(getInterfaceBaseTypeNodes(<InterfaceDeclaration>declaration));
+                    if (!isIndependentHeritageClause(getInterfaceBaseTypeNodes(<InterfaceDeclaration>declaration))) {
+                        return false;
+                    }
                 }
                 else if (isClassLike(declaration)) {
-                    return isIndependentHeritageClauseElement(getClassExtendsHeritageClauseElement(declaration)) &&
+                    const isIndependent = isIndependentHeritageClauseElement(getClassExtendsHeritageClauseElement(declaration)) &&
                         isIndependentHeritageClause(getClassImplementsHeritageClauseElements(declaration));
+
+                    if (!isIndependent) {
+                        return false;
+                    }
                 }
             }
             return true;
