@@ -3316,7 +3316,7 @@ namespace ts {
             if (!nodes) {
                 return true;
             }
-            for(const node of nodes) {
+            for (const node of nodes) {
                 if (!isIndependentHeritageClauseElement(node)) {
                     return false;
                 }
@@ -3628,8 +3628,8 @@ namespace ts {
                 }
                 const thisArgument = hasAssociatedThisType(type) ? lastOrUndefined(typeArguments) : undefined;
                 for (const baseType of baseTypes) {
-                    const instantiatedBaseType = thisArgument 
-                        ? getTypeWithThisArgument(instantiateType(baseType, mapper), thisArgument) 
+                    const instantiatedBaseType = thisArgument
+                        ? getTypeWithThisArgument(instantiateType(baseType, mapper), thisArgument)
                         : instantiateType(baseType, mapper);
                     addInheritedMembers(members, getPropertiesOfObjectType(instantiatedBaseType));
                     callSignatures = concatenate(callSignatures, getSignaturesOfType(instantiatedBaseType, SignatureKind.Call));
