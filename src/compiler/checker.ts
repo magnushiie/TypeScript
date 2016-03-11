@@ -3317,14 +3317,14 @@ namespace ts {
                 return true;
             }
             for (const node of nodes) {
-                if (!isIndependentHeritageClauseElement(node)) {
+                if (!isIndependentHeritageClauseElement(node, /*classSymbol*/ undefined)) {
                     return false;
                 }
             }
             return true;
         }
 
-        function isIndependentHeritageClauseElement(node: ExpressionWithTypeArguments): boolean {
+        function isIndependentHeritageClauseElement(node: ExpressionWithTypeArguments, classSymbol: Symbol): boolean {
             if (!node) {
                 return true;
             }
@@ -3337,6 +3337,13 @@ namespace ts {
                 const baseType = <InterfaceType>getDeclaredTypeOfSymbol(baseSymbol);
                 if (baseType.thisType) {
                     return false;
+                }
+            }
+            else if (classSymbol) {
+                Debug.assert((classSymbol.flags & SymbolFlags.Class) !== 0);
+                const baseTypes = getBaseTypes(<InterfaceType>getDeclaredTypeOfClassOrInterface(classSymbol));
+                if (baseTypes.length) {
+                    return (<InterfaceType>baseTypes[0]).thisType === undefined;
                 }
             }
             return true;
@@ -3356,7 +3363,7 @@ namespace ts {
                     }
                 }
                 else if (isClassLike(declaration)) {
-                    const isIndependent = isIndependentHeritageClauseElement(getClassExtendsHeritageClauseElement(declaration)) &&
+                    const isIndependent = isIndependentHeritageClauseElement(getClassExtendsHeritageClauseElement(declaration), symbol) &&
                         isIndependentHeritageClause(getClassImplementsHeritageClauseElements(declaration));
 
                     if (!isIndependent) {
