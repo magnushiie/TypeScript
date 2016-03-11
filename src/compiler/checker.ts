@@ -3312,7 +3312,7 @@ namespace ts {
             }
         }
 
-        function isIndependentHeritageClause(nodes: NodeArray<ExpressionWithTypeArguments>): boolean {
+        function isIndependentBaseInterfaceList(nodes: NodeArray<ExpressionWithTypeArguments>): boolean {
             if (!nodes) {
                 return true;
             }
@@ -3358,13 +3358,13 @@ namespace ts {
                     return false;
                 }
                 if (declaration.kind === SyntaxKind.InterfaceDeclaration) {
-                    if (!isIndependentHeritageClause(getInterfaceBaseTypeNodes(<InterfaceDeclaration>declaration))) {
+                    if (!isIndependentBaseInterfaceList(getInterfaceBaseTypeNodes(<InterfaceDeclaration>declaration))) {
                         return false;
                     }
                 }
                 else if (isClassLike(declaration)) {
                     const isIndependent = isIndependentHeritageClauseElement(getClassExtendsHeritageClauseElement(declaration), symbol) &&
-                        isIndependentHeritageClause(getClassImplementsHeritageClauseElements(declaration));
+                        isIndependentBaseInterfaceList(getClassImplementsHeritageClauseElements(declaration));
 
                     if (!isIndependent) {
                         return false;

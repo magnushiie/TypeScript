@@ -108,7 +108,7 @@ namespace ts {
         let container: Node;
         let blockScopeContainer: Node;
         let lastContainer: Node;
-        let seenThisKeyword: boolean;
+        let usesThisTypeOrReference: boolean;
 
         // state used by reachability checks
         let hasExplicitReturn: boolean;
@@ -152,7 +152,7 @@ namespace ts {
             container = undefined;
             blockScopeContainer = undefined;
             lastContainer = undefined;
-            seenThisKeyword = false;
+            usesThisTypeOrReference = false;
             hasExplicitReturn = false;
             labelStack = undefined;
             labelIndexMap = undefined;
@@ -450,12 +450,17 @@ namespace ts {
             // reset all emit helper flags on node (for incremental scenarios)
             flags &= ~NodeFlags.EmitHelperFlags;
 
+            // for classes and interfaces we need to track the usages of 'this' inside the body of declaration
             const trackThisOccurences = kind === SyntaxKind.InterfaceDeclaration || isClassLikeKind(kind);
-            let savedSeenThisKeyword: boolean;
+            // state of usesThisTypeOrReference should be saved and restored if either 
+            // - trackThisOccurences is true
+            // - current node is function declaration / function expression - they don't capture lexical this
+            const needSaveThisState = trackThisOccurences || kind === SyntaxKind.FunctionDeclaration || kind === SyntaxKind.FunctionExpression;
+            let savedUsesThisTypeOrReference: boolean;
 
-            if (trackThisOccurences) {
-                savedSeenThisKeyword = seenThisKeyword;
-                seenThisKeyword = false;
+            if (needSaveThisState) {
+                savedUsesThisTypeOrReference = usesThisTypeOrReference;
+                usesThisTypeOrReference = false;
             }
 
             const saveState = kind === SyntaxKind.SourceFile || kind === SyntaxKind.ModuleBlock || isFunctionLikeKind(kind);
@@ -485,8 +490,10 @@ namespace ts {
             }
 
             if (trackThisOccurences) {
-                flags = seenThisKeyword ? flags | NodeFlags.UsesThisTypeOrReference : flags & ~NodeFlags.UsesThisTypeOrReference;
-                seenThisKeyword = savedSeenThisKeyword;
+                flags = usesThisTypeOrReference ? flags | NodeFlags.UsesThisTypeOrReference : flags & ~NodeFlags.UsesThisTypeOrReference;
+            }
+            if (needSaveThisState) {
+                usesThisTypeOrReference = savedUsesThisTypeOrReference;
             }
 
             if (kind === SyntaxKind.SourceFile) {
@@ -1282,11 +1289,13 @@ namespace ts {
                     return checkStrictModeWithStatement(<WithStatement>node);
                 case SyntaxKind.ThisKeyword:
                     if (node.parent.kind !== SyntaxKind.PropertyAccessExpression && node.parent.kind !== SyntaxKind.ElementAccessExpression) {
-                        seenThisKeyword = true;
+                        // property access\element access expressions are considered 'safe' usages of 'this' - 'this' cannot escape the class scope
+                        // in all other cases pessimistically assume that 'this' can escape so class needs special treatment
+                        usesThisTypeOrReference = true;
                     }
                     break;
                 case SyntaxKind.ThisType:
-                    seenThisKeyword = true;
+                    usesThisTypeOrReference = true;
                     return;
                 case SyntaxKind.TypePredicate:
                     return checkTypePredicate(node as TypePredicateNode);
@@ -1382,7 +1391,7 @@ namespace ts {
                 checkStrictModeIdentifier(parameterName as Identifier);
             }
             if (parameterName && parameterName.kind === SyntaxKind.ThisType) {
-                seenThisKeyword = true;
+                usesThisTypeOrReference = true;
             }
             bind(type);
         }
